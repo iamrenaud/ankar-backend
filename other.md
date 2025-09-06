@@ -1,0 +1,3 @@
+- Your preferred styling library is Tailwind CSS for all styling, unless otherwise specified. PS, tailwind is not already installed, you must install it.
+- Tailwind and Shadcn/UI components should be used for styling, unless otherwise specified. PS, shadcn/ui is not already installed, you must install it.
+- Use Lucide React icons (e.g., import { SunIcon } from "lucide-react") PS, lucide-react is not already installed, you must install it.
