@@ -1,0 +1,287 @@
+// --------------------------------------------------------
+// schema.prisma — Bolt.new-style minimal starter (PostgreSQL)
+// Prisma 5+
+// --------------------------------------------------------
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ------------------------- Enums -------------------------
+
+enum Plan {
+  free // X tokens per month, with branding
+  pro // starts at $20/month and $15 yearly, no branding
+  teams // starts at $25/month/user and $20/yearly/user, no branding
+}
+
+enum MemberRole {
+  owner // created the org and is an admin
+  admin // is an admin
+  editor // can edit the projects
+  viewer // can only view the projects
+}
+
+enum Visibility {
+  private // can be accessed by insiders only
+  unlisted // can be accessed by anyone with the link
+  public // will be displayed in the showcase
+}
+
+enum EnvType {
+  dev
+  prod
+}
+
+enum EnvStatus {
+  stopped
+  starting
+  running
+  error
+}
+
+enum JobStatus {
+  queued
+  running
+  done
+  failed
+  canceled
+}
+
+enum MessageRole {
+  user
+  assistant
+  system
+  tool
+}
+
+enum ToolRunStatus {
+  pending
+  running
+  succeeded
+  failed
+  canceled
+}
+
+enum Tools {
+  getTemplateDirectives
+  getBaseDesignTool
+  createAssetImage
+  readPathTree
+  writeOrUpdateFiles
+  readFiles
+  createAndStartContainer
+  startNpmDev
+  restartNpmDev
+  checkForErrors
+  getContainerPreviewURL
+  terminal
+}
+
+enum PaymentType {
+  subscription
+  topup
+}
+
+// ------------------------- Core --------------------------
+
+model User {
+  id          String   @id @default(uuid())
+  email       String   @unique @db.Citext
+  displayName String?
+  plan        Plan     @default(free)
+  createdAt   DateTime @default(now())
+
+  // relations
+  orgsCreated Org[]        @relation("OrgCreatedBy")
+  memberOf    OrgMember[]
+  projects    Project[]     @relation("ProjectCreatedBy")
+}
+
+model Org {
+  id         String      @id @default(uuid())
+  name       String
+  slug       String      @unique @db.Citext
+  createdBy  String
+  creator    User        @relation("OrgCreatedBy", fields: [createdBy], references: [id], onDelete: Restrict)
+  createdAt  DateTime    @default(now())
+
+  // relations
+  members    OrgMember[]
+  projects   Project[]
+  billing    BillingCustomer?
+  payments   Payment[]
+  usage      UsageCounter[]
+}
+
+model OrgMember {
+  orgId   String
+  userId  String
+  role    MemberRole
+  addedAt DateTime @default(now())
+
+  org   Org   @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  user  User  @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([orgId, userId])
+  @@index([userId])
+}
+
+// ------------------------- Projects & Environments -------
+
+model Project {
+  id          String      @id @default(uuid())
+  orgId       String
+  name        String
+  slug        String      @db.Citext
+  visibility  Visibility  @default(private)
+  createdBy   String
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+
+  org     Org   @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  creator User  @relation("ProjectCreatedBy", fields: [createdBy], references: [id], onDelete: Restrict)
+
+  environments Environment[]
+  ops          OpsLog[]
+
+  @@unique([orgId, slug])
+  @@index([orgId])
+}
+
+model Environment {
+  id             String     @id @default(uuid())
+  projectId      String
+  envType        EnvType
+  containerImage String?
+  previewURL     String?
+  status         EnvStatus  @default(stopped)
+  createdAt      DateTime   @default(now())
+  updatedAt      DateTime   @updatedAt
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@index([projectId])
+}
+
+// ------------------------- Ops log & Jobs ----------------
+
+model OpsLog {
+  id         BigInt   @id @default(autoincrement())
+  projectId  String?
+  kind       String
+  payload    Json
+  createdAt  DateTime @default(now())
+
+  project    Project? @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@index([projectId])
+  @@index([kind])
+}
+
+model Job {
+  id         BigInt   @id @default(autoincrement())
+  type       String
+  payload    Json
+  status     JobStatus @default(queued)
+  runAt      DateTime  @default(now())
+  attempts   Int       @default(0)
+  lastError  String?
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+
+  @@index([status, runAt])
+  @@index([type])
+}
+
+// ------------------------- Billing & Usage ---------------
+
+model BillingCustomer {
+  id          String   @id @default(uuid())
+  orgId       String   @unique
+  provider    String   @default("stripe")
+  externalId  String
+  createdAt   DateTime @default(now())
+
+  org Org @relation(fields: [orgId], references: [id], onDelete: Cascade)
+}
+
+model UsageCounter {
+  // daily window per org & metric
+  orgId  String
+  metric String
+  window DateTime // store as Date; use UTC midnight in app
+  value  BigInt   @default(0)
+
+  org Org @relation(fields: [orgId], references: [id], onDelete: Cascade)
+
+  @@id([orgId, metric, window])
+}
+
+model Payment {
+  id         String   @id @default(uuid())
+  orgId      String
+  type       PaymentType
+  amount     Int
+  currency   String   @default("USD")
+  externalId String
+  createdAt  DateTime @default(now())
+
+  org Org @relation(fields: [orgId], references: [id], onDelete: Cascade)
+}
+
+// ---------------------------
+// Minimal chat + tool runs
+// ---------------------------
+
+model Conversation {
+  id         String    @id @default(uuid())
+  // Optional scoping (keep or remove these two if you don't need them)
+  projectId  String?   // tie to your Project.id if you have one
+  title      String?
+  createdBy  String?   // User.id (optional)
+  createdAt  DateTime  @default(now())
+
+  messages   Message[]
+
+  @@index([projectId, createdAt])
+}
+
+model Message {
+  id             String      @id @default(uuid())
+  conversationId String
+  role           MessageRole
+  // Keep JSON so you can support rich parts later; or switch to String if you only need text.
+  content        Json
+  createdAt      DateTime    @default(now())
+
+  conversation   Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+
+  // If the assistant called tools for this message
+  toolRuns        ToolRun[]
+
+  @@index([conversationId, createdAt])
+}
+
+model ToolRun {
+  id          String        @id @default(uuid())
+  messageId   String        
+  tool        Tools
+  args        Json
+  status      ToolRunStatus @default(pending)
+  result      Json?
+  error       String?
+  startedAt   DateTime?     // set on start
+  finishedAt  DateTime?     // set on finish
+  createdAt   DateTime      @default(now())
+
+  message     Message @relation(fields: [messageId], references: [id], onDelete: Cascade)
+
+  @@index([status, createdAt])
+  @@index([tool, createdAt])
+}

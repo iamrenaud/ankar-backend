@@ -1,6 +1,6 @@
 const { createTool } = require('@inngest/agent-kit');
 const { z } = require('zod');
-const containerApi = require('./containerApi');
+const containerApi = require('../containerApi');
 
 const createAndStartContainerTool = createTool({
     name: 'createAndStartContainer',
@@ -296,16 +296,18 @@ const checkForErrors = createTool({
 });
 
 // Get base directives (based on the project template)
+const getTemplateDirectives = createTool({});
 
 // Get base design tool
+const getBaseDesignTool = createTool({});
 
-// Get asset image
-
-// Lint or check the code at last step before finalizing the task
+// Create asset image
+const createAssetImage = createTool({});
 
 // use node instead of debian + have tailwindcss pre-installed
 
-module.exports = [
+
+module.exports.codeAgentTools = [
     getContainerPreviewURLTool,
     terminalTool,
     writeOrUpdateFilesWithDiffTool,
@@ -315,4 +317,11 @@ module.exports = [
     startNpmDev,
     restartNpmDev,
     checkForErrors,
+    getTemplateDirectives
 ];
+
+module.exports.designAgentTools = [
+    getBaseDesignTool,
+    createAssetImage,
+];
+
